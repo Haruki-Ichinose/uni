@@ -1,0 +1,7 @@
+
+typedef int TASK_ID_TYPE;
+
+extern TASK_ID_TYPE curr_task;
+extern TASK_ID_TYPE new_task;
+extern TASK_ID_TYPE next_task; 
+extern TASK_ID_TYPE 

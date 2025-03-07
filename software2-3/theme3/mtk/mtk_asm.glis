@@ -1,0 +1,240 @@
+68K GAS  mtk_asm.s 			page 1
+
+
+   1               	**global変数の宣言
+   2               	.global	first_task
+   3               	.global	swtch
+   4               	.global hard_clock
+   5               	.global init_timer
+   6               	.global skipmt
+   7               	.global	P
+   8               	.global	V
+   9               	.global	pv_handler
+  10               	
+  11               	**外部入力（大域変数）
+  12               	.extern curr_task
+  13               	.extern next_task
+  14               	.extern ready
+  15               	.extern task_tab
+  16               	
+  17               	**外部関数
+  18               	.extern addq
+  19               	.extern sched
+  20               	.extern	p_body
+  21               	.extern	v_body
+  22               	
+  23               	**システムコール番号
+  24               	.equ SYSCALL_NUM_GETSTRING,	1
+  25               	.equ SYSCALL_NUM_PUTSTRING,	2
+  26               	.equ SYSCALL_NUM_RESET_TIMER,   3
+  27               	.equ SYSCALL_NUM_SET_TIMER,	4
+  28               	.equ SYSCALL_NUM_SKIPMT, 5
+  29               	
+  30               	.equ PV_CALL_P,			0
+  31               	.equ PV_CALL_V,			1
+  32               	
+  33               	.section .text
+  34               	
+  35               	*********************************************************************************
+  36               	** ユーザタスク起動用ルーチン
+  37               	** first_task
+  38               	** 入出力なし
+  39               	** 担当：一瀬
+  40               	**
+  41               	*********************************************************************************
+  42               	first_task:
+  43 0000 2039 0000 	    move.l	curr_task, %d0             /*curr_taskの番号をd1に*/	
+  43      0000 
+  44 0006 207C 0000 	    movea.l	#task_tab, %a0             /*task_tab配列の先頭アドレスをa0に*/
+  44      0000 
+  45               	
+  46 000c C0FC 0014 	    mulu.w	#20, %d0                  /*curr_taskの番号に20を乗算し、d1に格納*/
+  47 0010 D1C0      	    add.l   %d0, %a0                   /*a0にd1を加算し、curr_taskの先頭アドレスを計
+  48               	 
+  49 0012 2248      	    movea.l %a0, %a1
+  50 0014 5889      	    add.l   #4,  %a1                   /*a0は該当のcurr_taskのstack_ptr(SSP）の先頭アド�
+  51               	
+  52 0016 2E51      	    move.l  (%a1), %sp                 /*スーパーバイザーモードのspにSSPを回復*/
+  53 0018 245F      	    move.l	(%sp)+, %a2                
+  54 001a 4E62      	    move.l	%a2, %USP
+  55               	
+68K GAS  mtk_asm.s 			page 2
+
+
+  56 001c 4CDF 7FFF 	    movem.l (%sp)+, %d0-%d7/%a0-%a6    /*レジスタ15本回復*/
+  57               	        
+  58 0020 4E73      	    rte
+  59               	
+  60               	***********************************************************************************
+  61               	** タスクスイッチを実際に起こす関数
+  62               	** swtch
+  63               	** 入出力なし
+  64               	** 担当：若松
+  65               	***********************************************************************************
+  66               	swtch:
+  67 0022 40E7      		move.w	%SR,-(%sp)                 /* SRを退避しrteでの復帰を可能に */
+  68               	
+  69 0024 48E7 FFFE 		movem.l	%d0-%d7/%a0-%a6,-(%sp)	   /* 実行中タスクのレジスタ退避 */
+  70 0028 4E68      		move.l	%usp, %a0
+  71 002a 2F08      		move.l	%a0, -(%sp)
+  72               		
+  73 002c 2239 0000 		move.l 	curr_task, %d1             /* curr_task -> d1 */
+  73      0000 
+  74 0032 C2FC 0014 		mulu.w  #20, %d1                   /* TCB配列の各要素は4*5=20byte, タスクidに乗算 */
+  75 0036 207C 0000 		movea.l #task_tab, %a0             /* task_tab配列の先頭アドレス -> a0 */
+  75      0000 
+  76 003c D1C1      		add.l   %d1, %a0                   /* task_tab配列内のcurr_taskの先頭アドレスまで移�
+  77 003e 5888      		add.l   #4,  %a0                   /* stack_ptr(SSP）の先頭アドレス -> a0 */
+  78 0040 208F      		move.l  %sp, (%a0)                 /* 現在のタスクのTCBにSSPを記録*/
+  79               		
+  80 0042 2239 0000 		move.l  next_task, %d1             /* next_task-> d1 */
+  80      0000 
+  81 0048 23C1 0000 		move.l  %d1, curr_task             /* curr_taskをnext_taskで更新*/
+  81      0000 
+  82 004e C2FC 0014 		mulu.w  #20, %d1                   /* TCB配列の各要素は4*5=20byte, タスクidに乗算 */
+  83 0052 207C 0000 		movea.l #task_tab, %a0             /* task_tab配列の先頭アドレス -> a0*/
+  83      0000 
+  84 0058 D1C1      		add.l   %d1, %a0                   /* task_tab配列内のcurr_taskの先頭アドレスまで移�
+  85 005a 5888      		add.l   #4,  %a0                   /* stack_ptr(SSP）の先頭アドレス -> a0 */
+  86 005c 2E50      	 	move.l  (%a0),%sp                  /* スーパバイザモードのspにSSPを回復 */
+  87               	
+  88 005e 205F      	 	move.l	(%sp)+, %a0
+  89 0060 4E60      	 	move.l	%a0, %USP   
+  90 0062 4CDF 7FFF 		movem.l (%sp)+,%d0-%d7/%a0-%a6 	   /*次のタスクのレジスタを回復*/
+  91               	
+  92 0066 4E73      		rte
+  93               	        
+  94               	        
+  95               	hard_clock:
+  96 0068 48E7 FFFE 		movem.l	%d0-%d7/%a0-%a6, -(%sp)
+  97               		
+  98 006c 203C 0000 		move.l	#ready, %d0			|%d0->readyキューへのポインタ
+  98      0000 
+  99 0072 2239 0000 		move.l	curr_task, %d1			|%d1->タスクのID
+  99      0000 
+ 100 0078 48E7 C000 		movem.l	%d0-%d1, -(%sp)		|%d0, %d1をスタックに積んで
+ 101 007c 4EB9 0000 		jsr	addq				|addqを実行
+ 101      0000 
+ 102 0082 DFFC 0000 		adda.l	#8, %sp			|%d0, %d1の8バイト分を%spに加算
+ 102      0008 
+ 103               		
+68K GAS  mtk_asm.s 			page 3
+
+
+ 104 0088 4EB9 0000 		jsr	sched
+ 104      0000 
+ 105 008e 4EBA FF92 		jsr	swtch
+ 106               	
+ 107 0092 4CDF 7FFF 		movem.l	(%sp)+, %d0-%d7/%a0-%a6
+ 108               		
+ 109 0096 4E75      		rts     
+ 110               	        
+ 111               	        
+ 112               	init_timer:
+ 113 0098 48E7 E000 		movem.l %d0-%d2, -(%sp) 
+ 114 009c 7003      		move.l #SYSCALL_NUM_RESET_TIMER, %d0    | タイマーをリセット
+ 115 009e 4E40      		trap #0
+ 116               	    
+ 117 00a0 7004      		move.l #SYSCALL_NUM_SET_TIMER, %d0      | タイマーをセット
+ 118 00a2 323C 03E8 		move.w #1000, %d1			                                        | およそ１秒くらい
+ 119 00a6 243C 0000 		move.l #hard_clock, %d2                                        | 割り込み時に呼び出すル
+ 119      0000 
+ 120 00ac 4E40      		trap #0
+ 121               	    
+ 122 00ae 4CDF 0007 		movem.l (%sp)+,%d0-%d2
+ 123 00b2 4E75      		rts  
+ 124               	
+ 125               	skipmt:
+ 126 00b4 48E7 E000 		movem.l %d0-%d2, -(%sp) 
+ 127 00b8 7005      		move.l #SYSCALL_NUM_SKIPMT, %d0
+ 128 00ba 4E40      		trap	#0
+ 129               		
+ 130 00bc 4CDF 0007 	  	movem.l (%sp)+,%d0-%d2
+ 131 00c0 4E75      		rts  
+ 132               	
+ 133               	P:
+ 134 00c2 4E56 0000 		link.w	%a6,#0
+ 135 00c6 48E7 C000 		movem.l	%d0-%d1,-(%sp)  /*レジスタ退避*/
+ 136               		
+ 137 00ca 7000      		move.l	#0,%d0          /*PシステムコールIDの0をd0レジスタにセット*/
+ 138 00cc 222E 0008 		move.l	8(%a6),%d1      /*スタックから取り出した引数（セマフォID）をd1レジス
+ 139 00d0 4E41      		trap	#1              
+ 140               		
+ 141 00d2 4CDF 0003 		movem.l	(%sp)+,%d0-%d1  /*レジスタ復帰*/
+ 142 00d6 4E5E      		unlk	%a6
+ 143               		
+ 144 00d8 4E75      		rts
+ 145               		
+ 146               	V:
+ 147 00da 4E56 0000 		link.w	%a6,#0
+ 148 00de 48E7 C000 		movem.l	%d0-%d1,-(%sp)  /*レジスタ退避*/
+ 149               		
+ 150 00e2 7001      		move.l	#1,%d0          /*VシステムコールIDの1をd1レジスタにセット*/
+ 151 00e4 222E 0008 		move.l	8(%a6),%d1      /*スタックから取り出した引数（セマフォID)をd1レジス�
+ 152 00e8 4E41      		trap	#1
+ 153               		
+ 154 00ea 4CDF 0003 		movem.l	(%sp)+,%d0-%d1  /*レジスタ復帰*/
+ 155 00ee 4E5E      		unlk	%a6
+ 156               		
+ 157 00f0 4E75      		rts
+ 158               	
+68K GAS  mtk_asm.s 			page 4
+
+
+ 159               	pv_handler:
+ 160 00f2 48E7 FFFE 		movem.l %a0-%a6/%d0-%d7, -(%sp) 
+ 161 00f6 40E7      		move.w	%SR,-(%sp)  /*SRをスタックに退避*/
+ 162 00f8 46FC 2700 		move.w	#0x2700,%SR /*走行レベルを７にして割り込み禁止*/
+ 163               		
+ 164 00fc 48E7 4000 		movem.l	%d1,-(%sp)  /*レジスタd1をスタックに退避*/
+ 165 0100 0C80 0000 		cmpi.l	#0,%d0      /*d0の値が0であるか比較*/
+ 165      0000 
+ 166 0106 6600 000C 		bne	pv_handler_1    /*d0が0でないならば分岐*/
+ 167 010a 4EB9 0000 		jsr	p_body          /*p_body()を呼び出す*/
+ 167      0000 
+ 168 0110 6000 0012 		bra	pv_handler_end  /*復帰処理へ*/
+ 169               		
+ 170               	pv_handler_1:
+ 171 0114 0C80 0000 		cmpi.l	#1,%d0      /*d0の値が1であるか比較*/
+ 171      0001 
+ 172 011a 6600 0008 		bne	pv_handler_end  /*d0が1でないならば分岐*/
+ 173 011e 4EB9 0000 		jsr	v_body          /*v_body()を呼び出す*/
+ 173      0000 
+ 174               		
+ 175               	pv_handler_end:
+ 176               	
+ 177 0124 4CDF 0002 		movem.l	(%sp)+,%d1  /*レジスタd1をスタックから復帰*/
+ 178 0128 46DF      		move.w	(%sp)+,%SR  /*SRをスタックから復帰*/
+ 179 012a 4CDF 7FFF 		movem.l (%sp)+, %a0-%a6/%d0-%d7
+ 180 012e 4E73      		rte                 /*割り込み終了*/         
+68K GAS  mtk_asm.s 			page 5
+
+
+DEFINED SYMBOLS
+           mtk_asm.s:42     .text:0000000000000000 first_task
+           mtk_asm.s:66     .text:0000000000000022 swtch
+           mtk_asm.s:95     .text:0000000000000068 hard_clock
+           mtk_asm.s:112    .text:0000000000000098 init_timer
+           mtk_asm.s:125    .text:00000000000000b4 skipmt
+           mtk_asm.s:133    .text:00000000000000c2 P
+           mtk_asm.s:146    .text:00000000000000da V
+           mtk_asm.s:159    .text:00000000000000f2 pv_handler
+           mtk_asm.s:24     *ABS*:0000000000000001 SYSCALL_NUM_GETSTRING
+           mtk_asm.s:25     *ABS*:0000000000000002 SYSCALL_NUM_PUTSTRING
+           mtk_asm.s:26     *ABS*:0000000000000003 SYSCALL_NUM_RESET_TIMER
+           mtk_asm.s:27     *ABS*:0000000000000004 SYSCALL_NUM_SET_TIMER
+           mtk_asm.s:28     *ABS*:0000000000000005 SYSCALL_NUM_SKIPMT
+           mtk_asm.s:30     *ABS*:0000000000000000 PV_CALL_P
+           mtk_asm.s:31     *ABS*:0000000000000001 PV_CALL_V
+           mtk_asm.s:170    .text:0000000000000114 pv_handler_1
+           mtk_asm.s:175    .text:0000000000000124 pv_handler_end
+
+UNDEFINED SYMBOLS
+curr_task
+task_tab
+next_task
+ready
+addq
+sched
+p_body
+v_body

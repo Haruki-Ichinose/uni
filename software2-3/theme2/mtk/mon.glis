@@ -1,0 +1,749 @@
+68K GAS  mon.s 			page 1
+
+
+   1               	***************************************************************
+   2               	** 各種レジスタ定義
+   3               	***************************************************************
+   4               	***************
+   5               	** レジスタ群の先頭
+   6               	***************
+   7               	.equ REGBASE, 	0xFFF000 	| DMAP を使用．
+   8               	.equ IOBASE, 	0x00d00000
+   9               		
+  10               	***************
+  11               	** 割り込み関係のレジスタ
+  12               	***************
+  13               	.equ IVR, REGBASE+0x300 	| 割り込みベクタレジスタ
+  14               	.equ IMR, REGBASE+0x304 	| 割り込みマスクレジスタ
+  15               	.equ ISR, REGBASE+0x30c 	| 割り込みステータスレジスタ
+  16               	.equ IPR, REGBASE+0x310 	| 割り込みペンディングレジスタ
+  17               		
+  18               	***************
+  19               	** タイマ関係のレジスタ
+  20               	***************
+  21               	.equ TCTL1, 	REGBASE+0x600 	| タイマ１コントロールレジスタ
+  22               	.equ TPRER1, 	REGBASE+0x602 	| タイマ１プリスケーラレジスタ
+  23               	.equ TCMP1, 	REGBASE+0x604 	| タイマ１コンペアレジスタ
+  24               	.equ TCN1, 	REGBASE+0x608 	| タイマ１カウンタレジスタ
+  25               	.equ TSTAT1, 	REGBASE+0x60a 	| タイマ１ステータスレジスタ
+  26               		
+  27               	***************
+  28               	** UART1（送受信）関係のレジスタ
+  29               	***************
+  30               	.equ USTCNT1, 	REGBASE+0x900 	| UART1 ステータス/コントロールレジスタ
+  31               	.equ UBAUD1, 	REGBASE+0x902 	| UART1 ボーコントロールレジスタ
+  32               	.equ URX1, 	REGBASE+0x904 	| UART1 受信レジスタ
+  33               	.equ UTX1, 	REGBASE+0x906 	| UART1 送信レジスタ
+  34               		
+  35               	***************
+  36               	** LED
+  37               	***************
+  38               	.equ LED7, IOBASE+0x000002f
+  39               	.equ LED6, IOBASE+0x000002d
+  40               	.equ LED5, IOBASE+0x000002b
+  41               	.equ LED4, IOBASE+0x0000029
+  42               	.equ LED3, IOBASE+0x000003f
+  43               	.equ LED2, IOBASE+0x000003d
+  44               	.equ LED1, IOBASE+0x000003b
+  45               	.equ LED0, IOBASE+0x0000039
+  46               	
+  47               	
+  48               	
+  49               	
+  50               	**********************************************
+  51               	.extern start
+  52               	.global monitor_begin
+  53               	.global TSTAT1
+  54               	monitor_begin:
+  55               	
+  56               	
+  57               	
+68K GAS  mon.s 			page 2
+
+
+  58               	***************************************************************
+  59               	** スタック領域の確保
+  60               	***************************************************************
+  61               	.section .bss
+  62               	.even
+  63 0000 0000 0000 	SYS_STK: .ds.b 0x4000 	| システムスタック領域
+  63      0000 0000 
+  63      0000 0000 
+  63      0000 0000 
+  63      0000 0000 
+  64               	
+  65               	.even
+  66               	SYS_STK_TOP: 		| システムスタック領域の最後尾
+  67               	
+  68               	.even
+  69 4000 0000 0000 	task_p:	.ds.l 1
+  70               	
+  71               		
+  72               	***************************************************************
+  73               	** 初期化
+  74               	***************************************************************
+  75               	.section .text
+  76               	.even
+  77               	boot:   ***************************************************
+  78               		** スーパーバイザ & 各種設定を行っている最中の割込禁止
+  79               		***************************************************
+  80 0000 46FC 2700 		move.w 	#0x2700,%SR
+  81 0004 4FF9 0000 		lea.l	SYS_STK_TOP, %SP | Set SSP
+  81      0000 
+  82               		
+  83               		******************************
+  84               		** 割り込みコントローラの初期化
+  85               		*****************************
+  86 000a 13FC 0040 		move.b 	#0x40, IVR | ユーザ割り込みベクタ番号を0x40+level に設定．
+  86      00FF F300 
+  87 0012 23FC 00FF 		move.l 	#0x00ff3ffb,IMR | 全割り込みマスク
+  87      3FFB 00FF 
+  87      F304 
+  88               		
+  89               		******************************************************************
+  90               		** 送受信 (UART1) 関係の初期化 (割り込みレベルは 4 に固定されている)
+  91               		*****************************************************************
+  92 001c 33FC E10C 		move.w 	#0xe10c, USTCNT1 
+  92      00FF F900 
+  93 0024 33FC 0038 		move.w 	#0x0038, UBAUD1 | baud rate = 230400 bps
+  93      00FF F902 
+  94               		
+  95               		*********************************************************
+  96               		** タイマ関係の初期化 (割り込みレベルは 6 に固定されている)
+  97               		*********************************************************
+  98 002c 33FC 0004 		move.w 	#0x0004, TCTL1 
+  98      00FF F600 
+  99               	
+ 100 0034 21FC 0000 		move.l 	#uart1_interrupt, 0x110
+ 100      0000 0110 
+ 101 003c 21FC 0000 		move.l 	#timer_interrupt, 0x118
+ 101      0000 0118 
+68K GAS  mon.s 			page 3
+
+
+ 102               	
+ 103               		***************
+ 104               		**キューの初期化
+ 105               		***************
+ 106 0044 4EBA 00D8 		jsr 	Init_Q
+ 107               		
+ 108 0048 21FC 0000 		move.l	#SYSTEM_CALL,0x080
+ 108      0000 0080 
+ 109 0050 23FC 000F 		move.l	#0x00f3ff9, IMR
+ 109      3FF9 00FF 
+ 109      F304 
+ 110               		
+ 111 005a 46FC 0000 		move.w 	#0x0000, %SR | USER MODE, LEVEL 0
+ 112 005e 4EF9 0000 		jmp	start
+ 112      0000 
+ 113               		**bra 	MAIN
+ 114               		
+ 115               	***************
+ 116               	** システムコール番号
+ 117               	***************
+ 118               	.equ SYSCALL_NUM_GETSTRING, 	1
+ 119               	.equ SYSCALL_NUM_PUTSTRING, 	2
+ 120               	.equ SYSCALL_NUM_RESET_TIMER, 	3
+ 121               	.equ SYSCALL_NUM_SET_TIMER, 	4
+ 122               	.equ SYSCALL_NUM_SKIPMT,	5
+ 123               		
+ 124               	****************************************************************
+ 125               	*** プログラム領域
+ 126               	****************************************************************
+ 127               	.section .text
+ 128               	.even
+ 129               	MAIN:
+ 130               	
+ 131               	
+ 132               	
+ 133               	
+ 134               	
+ 135               	
+ 136               	
+ 137               	
+ 138               	
+ 139               	
+ 140               	****************************************************************
+ 141               	*** 初期値のあるデータ領域
+ 142               	****************************************************************
+ 143               	.section .data
+ 144 0000 2A2A 2A2A 	TMSG:	.ascii "******\r\n" 	| \r: 行頭へ (キャリッジリターン)
+ 144      2A2A 0D0A 
+ 145               	.even 				| \n: 次の行へ (ラインフィード)
+ 146 0008 0000      	TTC:	.dc.w 0
+ 147               	.even
+ 148               		
+ 149               	****************************************************************
+ 150               	*** 初期値の無いデータ領域
+ 151               	****************************************************************
+ 152               	.section .bss
+ 153 4004 0000 0000 	BUF: .ds.b 256 			| BUF[256]
+68K GAS  mon.s 			page 4
+
+
+ 153      0000 0000 
+ 153      0000 0000 
+ 153      0000 0000 
+ 153      0000 0000 
+ 154               	.even
+ 155 4104 0000 0000 	USR_STK: .ds.b 0x4000 		| ユーザスタック領域
+ 155      0000 0000 
+ 155      0000 0000 
+ 155      0000 0000 
+ 155      0000 0000 
+ 156               	.even
+ 157               	USR_STK_TOP: 			| ユーザスタック領域の最後尾
+ 158               		
+ 159               		
+ 160               		
+ 161               		
+ 162               		
+ 163               	*******************************
+ 164               	.section .bss
+ 165 8104 0000 0000 	Queue0:		.ds.b	274	
+ 165      0000 0000 
+ 165      0000 0000 
+ 165      0000 0000 
+ 165      0000 0000 
+ 166 8216 0000 0000 	Queue1:		.ds.b	274
+ 166      0000 0000 
+ 166      0000 0000 
+ 166      0000 0000 
+ 166      0000 0000 
+ 167               	
+ 168               	.section .text
+ 169               		.equ	BF_START, 0
+ 170               		.equ	BF_END, 255
+ 171               		.equ	top, 256
+ 172               		.equ	out, 260
+ 173               		.equ	in, 264
+ 174               		.equ	bottom, 268
+ 175               		.equ	s, 272
+ 176               	
+ 177               	
+ 178               	**************************
+ 179               	**送受信割り込み
+ 180               	**************************
+ 181               		
+ 182               	uart1_interrupt:
+ 183 0064 48E7 F000 		movem.l %d0-%d3, -(%sp)      
+ 184               	
+ 185 0068 3039 00FF 		move.w 	UTX1, %d0
+ 185      F906 
+ 186 006e 0280 0000 		andi.l 	#0x8000, %d0
+ 186      8000 
+ 187 0074 6700 0008 		beq 	uart1_interrupt_receive
+ 188 0078 7200      		move.l 	#0, %d1
+ 189 007a 4EBA 01B6 		jsr 	INTERPUT
+ 190               		
+ 191               	uart1_interrupt_receive:
+ 192 007e 3639 00FF 		move.w 	URX1, %d3
+68K GAS  mon.s 			page 5
+
+
+ 192      F904 
+ 193 0084 1403      		move.b	%d3, %d2
+ 194 0086 0283 0000 		andi.l	#0x2000, %d3
+ 194      2000 
+ 195 008c 6700 000C 		beq	uart1_interrupt_end
+ 196 0090 7200      		move.l 	#0, %d1
+ 197 0092 4EBA 0220 		jsr 	INTERGET
+ 198 0096 6000 0002 		bra	uart1_interrupt_end
+ 199               		
+ 200               	uart1_interrupt_end:	
+ 201 009a 4CDF 000F 		movem.l (%sp)+, %d0-%d3
+ 202 009e 4E73      		rte
+ 203               		
+ 204               	
+ 205               	***************************************
+ 206               	** タイマ用ハード割り込みインターフェース
+ 207               	***************************************
+ 208               	timer_interrupt:
+ 209 00a0 3039 00FF 	    move.w 	TSTAT1, %d0        	/*TSTATをd0レジスタに読み込み*/
+ 209      F60A 
+ 210 00a6 0240 0001 	    andi.w	#0x01, %d0
+ 211 00aa 0C40 0000 	    cmpi.w	#0, %d0			/*第0ビットを確認（1ならば割り込み発生）*/
+ 212 00ae 6700 000E 	    beq     	timer_interrupt_end	/*0ならば割り込み処理を終了*/
+ 213 00b2 33FC 0000 	    move.w  	#0, TSTAT1        	/*TSTATをリセット*/
+ 213      00FF F60A 
+ 214 00ba 4EBA 0276 	    jsr     	CALL_RP           	/*割り込み時に呼び出すルーチンを実行*/
+ 215               	timer_interrupt_end:
+ 216 00be 4E73      	    rte                       		/*割り込み終了*/
+ 217               	    
+ 218               	    
+ 219               	****************************
+ 220               	** SYSTEM_CALL
+ 221               	** 入力
+ 222               	** d0:システムコール番号
+ 223               	** d1以降:システムコールの引数
+ 224               	** 出力
+ 225               	** d0:システムコール呼び出しの結果
+ 226               	****************************
+ 227               	
+ 228               	SYSTEM_CALL:
+ 229               	
+ 230               	SYSTEM_CALL_SKIPMT:
+ 231 00c0 0C80 0000 		cmp.l	#5, %d0
+ 231      0005 
+ 232 00c6 6600 0008 		bne	SYSTEM_CALL1	
+ 233 00ca 4EBA FFD4 		jsr	timer_interrupt
+ 234 00ce 4E73      		rte
+ 235               		
+ 236               	SYSTEM_CALL1:	
+ 237 00d0 48E7 7000 		movem.l	%d1-%d3,-(%sp)		/*レジスタの退避*/
+ 238 00d4 0C80 0000 		cmp.l	#1,%d0
+ 238      0001 
+ 239 00da 6600 000A 		bne	SYSTEM_CALL2		/*システムコール番号が１でないならば分岐*/
+ 240 00de 4EBA 01EE 		jsr	GETSTRING		/*GETSTRINGを呼び出す*/
+ 241 00e2 6000 0034 		bra	SYSTEM_CALL_FINISH
+ 242               		
+ 243               	SYSTEM_CALL2:
+68K GAS  mon.s 			page 6
+
+
+ 244 00e6 0C80 0000 		cmp.l	#2,%d0
+ 244      0002 
+ 245 00ec 6600 000A 		bne	SYSTEM_CALL3		/*システムコール番号が2でないならば分岐*/
+ 246 00f0 4EBA 017E 		jsr	PUTSTRING		/*PUTSTRINGを呼び出す*/
+ 247 00f4 6000 0022 		bra	SYSTEM_CALL_FINISH
+ 248               	
+ 249               	SYSTEM_CALL3:
+ 250 00f8 0C80 0000 		cmp.l	#3,%d0
+ 250      0003 
+ 251 00fe 6600 000A 		bne	SYSTEM_CALL4		/*システムコール番号が3でないならば分岐*/
+ 252 0102 4EBA 01FE 		jsr	RESET_TIMER		/*RESET_TIMERを呼び出す*/
+ 253 0106 6000 0010 		bra	SYSTEM_CALL_FINISH
+ 254               	
+ 255               	SYSTEM_CALL4:
+ 256 010a 0C80 0000 		cmp.l	#4,%d0
+ 256      0004 
+ 257 0110 6600 0006 		bne	SYSTEM_CALL_FINISH	/*システムコール番号が4でないならば分岐*/
+ 258 0114 4EBA 01F6 		jsr	SET_TIMER		/*SET_TIMERを呼び出す*/
+ 259               	
+ 260               	SYSTEM_CALL_FINISH:
+ 261 0118 4CDF 000E 		movem.l	(%sp)+,%d1-%d3		/*レジスタの復帰*/
+ 262 011c 4E73      		rte
+ 263               	    
+ 264               	    
+ 265               	***************************
+ 266               	**初期化処理
+ 267               	***************************
+ 268               	Init_Q:
+ 269 011e 4EBA 0008 		jsr 	Init_Q0
+ 270 0122 4EBA 002A 		jsr 	Init_Q1
+ 271 0126 4E75      		rts
+ 272               	
+ 273               	Init_Q0:
+ 274 0128 43F9 0000 		lea.l	Queue0, %a1
+ 274      0000 
+ 275 012e 2449      		move.l	%a1, %a2
+ 276 0130 D5FC 0000 		add.l	#BF_END, %a2
+ 276      00FF 
+ 277 0136 2349 0100 		move.l	%a1, top(%a1)
+ 278 013a 2349 0104 		move.l	%a1, out(%a1)
+ 279 013e 2349 0108 		move.l	%a1, in(%a1)
+ 280 0142 234A 010C 		move.l	%a2, bottom(%a1)
+ 281 0146 137C 0000 		move.b	#0x00, s(%a1)
+ 281      0110 
+ 282 014c 4E75      		rts
+ 283               	
+ 284               	Init_Q1:	
+ 285 014e 43F9 0000 		lea.l	Queue1, %a1
+ 285      0000 
+ 286 0154 2449      		move.l	%a1, %a2
+ 287 0156 D5FC 0000 		add.l	#BF_END, %a2
+ 287      00FF 
+ 288 015c 2349 0100 		move.l	%a1, top(%a1)
+ 289 0160 2349 0104 		move.l	%a1, out(%a1)
+ 290 0164 2349 0108 		move.l	%a1, in(%a1)
+ 291 0168 234A 010C 		move.l	%a2, bottom(%a1)
+ 292 016c 137C 0000 		move.b	#0x00, s(%a1)
+68K GAS  mon.s 			page 7
+
+
+ 292      0110 
+ 293 0172 4E75      		rts
+ 294               	
+ 295               	****************************
+ 296               	**SelectQueue
+ 297               	****************************
+ 298               	SelectQueue:
+ 299 0174 227C 0000 		movea.l	#Queue0,%a1		/*a1はキューの先頭アドレス*/
+ 299      0000 
+ 300 017a 0C40 0000 		cmp	#0, %d0
+ 301 017e 6700 0010 		beq	End_SelectQueue
+ 302 0182 227C 0000 		movea.l	#Queue1,%a1
+ 302      0000 
+ 303 0188 0C40 0001 		cmp	#1, %d0
+ 304 018c 6700 0002 		beq	End_SelectQueue
+ 305               	End_SelectQueue:
+ 306 0190 4E75      		rts	
+ 307               	
+ 308               	*************************
+ 309               	INQ:
+ 310 0192 40E7      		move.w	 %SR, -(%sp)
+ 311 0194 46FC 2700 		move.w	#0x2700, %SR
+ 312 0198 48E7 20F0 		movem.l	%a0-%a3/%d2, -(%sp)	/*レジスタの退避*/
+ 313 019c 4EBA FFD6 		jsr	SelectQueue		/*SelectQueueで編集するキューの先頭をa1へ*/
+ 314 01a0 7000      		move.l	#0, %d0			/*失敗判定に使用*/
+ 315 01a2 4EBA 0026 		jsr	PUT_BUF
+ 316 01a6 4CDF 0F04 		movem.l	(%sp)+, %a0-%a3/%d2	/*レジスタの回復*/
+ 317 01aa 46DF      		move.w 	(%sp)+, %SR
+ 318 01ac 4E75      		rts
+ 319               	
+ 320               	OUTQ:
+ 321 01ae 40E7      		move.w 	%SR, -(%sp)
+ 322 01b0 46FC 2700 		move.w	#0x2700, %SR
+ 323 01b4 48E7 20F0 		movem.l	%a0-%a3/%d2, -(%sp)	/*レジスタの退避*/
+ 324 01b8 4EBA FFBA 		jsr	SelectQueue		/*SelectQueueで編集するキューの先頭をa1へ*/
+ 325 01bc 7000      		move.l	#0, %d0
+ 326 01be 4EBA 003E 		jsr	GET_BUF
+ 327 01c2 4CDF 0F04 		movem.l	(%sp)+, %a0-%a3/%d2	/*レジスタの回復*/
+ 328 01c6 46DF      		move.w 	(%sp)+, %SR
+ 329 01c8 4E75      		rts
+ 330               	
+ 331               	*************************
+ 332               	**PUT_BUF
+ 333               	** a1: キューの先頭アドレス
+ 334               	** a2: 比較用アドレスレジスタ
+ 335               	** a3: キュー内データの格納先アドレス
+ 336               	*************************
+ 337               	PUT_BUF:
+ 338 01ca 3429 0110 		move	s(%a1), %d2
+ 339 01ce 0C42 0100 		cmp	 #0x100, %d2
+ 340 01d2 6700 0028 		beq	END_PUT_BUF
+ 341 01d6 2669 0108 		movea.l in(%a1), %a3
+ 342 01da 1681      		move.b	%d1, (%a3)
+ 343 01dc 2469 010C 		movea.l	bottom(%a1), %a2
+ 344 01e0 B5E9 0108 		cmpa.l	in(%a1), %a2
+ 345 01e4 6700 000A 		beq	STEP1_PUT_BUF
+ 346 01e8 52A9 0108 		add.l	#1, in(%a1)
+68K GAS  mon.s 			page 8
+
+
+ 347 01ec 6000 0008 		bra	STEP2_PUT_BUF
+ 348               	
+ 349               	STEP1_PUT_BUF:
+ 350 01f0 2369 0100 		move.l	top(%a1), in(%a1)
+ 350      0108 
+ 351               	
+ 352               	
+ 353               	STEP2_PUT_BUF:
+ 354 01f6 5269 0110 		addq	#1, s(%a1)
+ 355 01fa 7001      		move.l	#1, %d0			/*書き込み成功*/
+ 356               	
+ 357               	END_PUT_BUF:	
+ 358 01fc 4E75      		rts
+ 359               	
+ 360               	
+ 361               	****************************
+ 362               	**GET_BUF
+ 363               	** a1: キューの先頭アドレス
+ 364               	** a2: 比較用アドレスレジスタ
+ 365               	** a3: キュー内データの読み出し元アドレス
+ 366               	***************************	
+ 367               	GET_BUF:	
+ 368 01fe 3429 0110 		move	s(%a1), %d2
+ 369 0202 0C42 0000 		cmp	 #0x0, %d2
+ 370 0206 6700 0028 		beq	END_GET_BUF
+ 371 020a 2669 0104 		movea.l out(%a1), %a3
+ 372 020e 1213      		move.b	(%a3), %d1
+ 373 0210 2469 010C 		movea.l	bottom(%a1), %a2
+ 374 0214 B5E9 0104 		cmpa.l	out(%a1), %a2
+ 375 0218 6700 000A 		beq	STEP1_GET_BUF
+ 376 021c 52A9 0104 		add.l	#1, out(%a1)
+ 377 0220 6000 0008 		bra	STEP2_GET_BUF
+ 378               	
+ 379               	STEP1_GET_BUF:
+ 380 0224 2369 0100 		move.l	top(%a1), out(%a1)
+ 380      0104 
+ 381               	
+ 382               	
+ 383               	STEP2_GET_BUF:
+ 384 022a 5369 0110 		subq	#1, s(%a1)
+ 385 022e 7001      		move.l	#1, %d0			/*書き込み成功*/
+ 386               	
+ 387               	END_GET_BUF:	
+ 388 0230 4E75      		rts
+ 389               	
+ 390               	**********************
+ 391               	** INTERPUT
+ 392               	** 入力: ch ->　d1
+ 393               	**********************
+ 394               	INTERPUT:
+ 395 0232 48E7 00F0 		movem.l %a0-%a3, -(%sp)		
+ 396 0236 40E7      		move.w 	%SR, -(%sp)
+ 397 0238 46FC 2700 		move.w 	#0x2700, %SR		/*走行レベル7に設定*/
+ 398               	
+ 399 023c 0C41 0000 		cmp 	#0, %d1
+ 400 0240 6600 0026 		bne 	END_INTERPUT		/*ch!=0なら何もせず復帰*/
+ 401               	
+68K GAS  mon.s 			page 9
+
+
+ 402 0244 7001      		moveq.l #1, %d0
+ 403 0246 4EBA FF66 		jsr 	OUTQ			/*OUTQ(1,%d1)を実行*/
+ 404               		
+ 405 024a 0C00 0000 		cmp.b 	#0, %d0
+ 406 024e 6600 000E 		bne 	OUTQ_FAIL		/*OUTQが失敗なら送信割り込みをマスク*/
+ 407               	
+ 408 0252 33FC E108 		move.w 	#0xe108, USTCNT1	/*送信割り込みをマスク*/
+ 408      00FF F900 
+ 409 025a 6000 000C 		bra 	END_INTERPUT
+ 410               	
+ 411               	OUTQ_FAIL:
+ 412 025e 0641 0800 		add.w 	#0x800, %d1		/*ヘッダ付与*/
+ 413 0262 33C1 00FF 		move.w 	%d1, UTX1		/*UTX1に送信*/
+ 413      F906 
+ 414               	
+ 415               	END_INTERPUT:
+ 416 0268 46DF      		move.w 	(%sp)+, %SR
+ 417 026a 4CDF 0F00 		movem.l (%sp)+, %a0-%a3
+ 418 026e 4E75      		rts
+ 419               	
+ 420               	
+ 421               	******************
+ 422               	**PUTSTRING
+ 423               	** 入力:
+ 424               	**	ch ->　d1
+ 425               	**	p  ->　d2
+ 426               	**	size ->　d3
+ 427               	** 出力:
+ 428               	**	実際送信したデータ数->d0 
+ 429               	******************
+ 430               	
+ 431               	PUTSTRING:
+ 432 0270 48E7 7880 		movem.l %d1-%d4/%a0, -(%sp)
+ 433 0274 0C41 0000 		cmp 	#0, %d1
+ 434 0278 6600 0034 		bne 	END_PUTSTRING		/*ch≠0ならなにもせず復帰*/
+ 435 027c 7800      		move.l	 #0, %d4		| sz<-0
+ 436 027e 2042      		move.l 	%d2, %a0		| i<-p
+ 437 0280 0C43 0000 		cmp 	#0, %d3
+ 438 0284 6700 0026 		beq 	PUTSTRING_STEP3		/*size=0なら分岐*/
+ 439               	
+ 440               	PUTSTRING_STEP1:
+ 441 0288 B644      		cmp 	%d4, %d3
+ 442 028a 6700 0018 		beq 	PUTSTRING_STEP2		/*sz=sizeなら分岐*/
+ 443 028e 7001      		move.l	 #1, %d0
+ 444 0290 1218      		move.b 	(%a0)+, %d1
+ 445 0292 4EBA FEFE 		jsr 	INQ
+ 446 0296 0C40 0000 		cmp 	#0, %d0
+ 447 029a 6700 0008 		beq 	PUTSTRING_STEP2		/*INQ失敗なら分岐*/
+ 448 029e 5244      		add 	#1, %d4			| sz++
+ 449 02a0 6000 FFE6 		bra 	PUTSTRING_STEP1
+ 450               	
+ 451               	PUTSTRING_STEP2:
+ 452 02a4 33FC E10C 		move.w 	#0xe10c, USTCNT1	/*送信割り込み許可*/
+ 452      00FF F900 
+ 453               	
+ 454               	PUTSTRING_STEP3:
+ 455 02ac 2004      		move.l 	%d4, %d0
+68K GAS  mon.s 			page 10
+
+
+ 456               	
+ 457               	END_PUTSTRING:
+ 458 02ae 4CDF 011E 		movem.l (%sp)+, %d1-%d4/%a0
+ 459 02b2 4E75      		rts
+ 460               	    
+ 461               	*******************
+ 462               	** INTERGET
+ 463               	** 入力: ch->d1
+ 464               	**	 data->d2
+ 465               	******************
+ 466               	
+ 467               	INTERGET:
+ 468 02b4 48E7 E000 		movem.l	%d0-%d2, -(%sp)		/*レジスタの退避*/
+ 469 02b8 0C01 0000 		cmpi.b	#0, %d1
+ 470 02bc 6600 000A 		bne	END_INTERGET		/*ch=0なら何もせず復帰*/
+ 471 02c0 7000      		move.l	#0x0, %d0
+ 472 02c2 2202      		move.l	%d2, %d1
+ 473 02c4 4EBA FECC 		jsr	INQ			/*OUTQ(1,%d1)を実行*/
+ 474               	
+ 475               	END_INTERGET:
+ 476 02c8 4CDF 0007 		movem.l	(%sp)+, %d0-%d2		/*レジスタの回復*/
+ 477 02cc 4E75      		rts
+ 478               	
+ 479               	
+ 480               	************
+ 481               	** GETSTRING
+ 482               	** 入力:ch -> d1
+ 483               	**	p  -> d2 /* データ書き込み先の先頭アドレス*/
+ 484               	**	size ->d3 /*取り出すデータサイズ*/
+ 485               	** 戻り値: sz ->d0	
+ 486               	*************
+ 487               	
+ 488               	GETSTRING:
+ 489 02ce 48E7 7880 		movem.l	%d1-%d4/%a0, -(%sp)		/*レジスタの退避*/
+ 490 02d2 0C01 0000 		cmpi.b	#0, %d1				/*chが0以外なら何もしない*/
+ 491 02d6 6600 0022 		bne	END_GETSTRING
+ 492 02da 7800      		move.l	#0, %d4				/*%d4をszとして使用*/
+ 493 02dc 2042      		movea.l	%d2, %a0			/*%a0をiとして使用*/
+ 494               		
+ 495               	GETSTRING_LOOP:	
+ 496 02de B843      		cmp	%d3, %d4			/*sz = sizeならば分岐*/
+ 497 02e0 6700 0018 		beq	END_GETSTRING	
+ 498 02e4 7000      		move.l	#0, %d0				/*受信キューを指定*/
+ 499 02e6 4EBA FEC6 		jsr	OUTQ				/*OUTQにより受信キューからデータ読み込み*/
+ 500 02ea 0C00 0000 		cmpi.b	#0, %d0				/*OUTQが失敗ならば分岐*/
+ 501 02ee 6700 000A 		beq	END_GETSTRING
+ 502 02f2 10C1      		move.b	%d1, (%a0)+			/*i番地にdataをコピーし、i++*/
+ 503 02f4 5284      		addq.l	#1, %d4				/*sz++*/
+ 504 02f6 6000 FFE6 		bra	GETSTRING_LOOP
+ 505               	
+ 506               	END_GETSTRING:
+ 507 02fa 2004      		move.l	%d4, %d0			/*sz -> %d0*/
+ 508 02fc 4CDF 011E 		movem.l	(%sp)+, %d1-%d4/%a0		/*レジスタの回復*/
+ 509 0300 4E75      		rts
+ 510               	
+ 511               	**********************
+ 512               	** RESET_TIMER
+68K GAS  mon.s 			page 11
+
+
+ 513               	** TCTLを割り込み不可に設定
+ 514               	**********************
+ 515               		
+ 516               	RESET_TIMER:
+ 517 0302 33FC 0004 		move.w	#0x0004, TCTL1			/* TCTLを割り込み不可*/
+ 517      00FF F600 
+ 518 030a 4E75      		rts
+ 519               	
+ 520               	
+ 521               		
+ 522               	**********************
+ 523               	** SET_TIMER
+ 524               	** 入力
+ 525               	** タイマ割り込み発生周期t -> %d1	
+ 526               	** 割り込み時に起動するルーチンの先頭アドレス-> %d2
+ 527               	**********************
+ 528               		
+ 529               	SET_TIMER:
+ 530 030c 48E7 6000 		movem.l	%d1-%d2, -(%sp)	/* レジスタ退避 */
+ 531 0310 23C2 0000 		move.l	%d2, task_p	/* 先頭アドレスをtask_pへ代入 */
+ 531      0000 
+ 532 0316 33F8 00CE 		move.w	206, TPRER1	/* TPRERを206に設定 */
+ 532      00FF F602 
+ 533 031e 33C1 00FF 		move.w	%d1, TCMP1	/* 割り込み発生周期をTCMPへ */
+ 533      F604 
+ 534 0324 33FC 0015 		move.w	#0x0015, TCTL1	/* TCTLを割り込み許可 */
+ 534      00FF F600 
+ 535 032c 4CDF 0006 		movem.l	(%sp)+, %d1-%d2	/* レジスタの回復 */
+ 536 0330 4E75      		rts
+ 537               	
+ 538               	
+ 539               	****************************
+ 540               	** CALL_RP
+ 541               	** タイマ割り込み時に処理すべきルーチンを呼び出す
+ 542               	****************************
+ 543               	
+ 544               	CALL_RP:
+ 545 0332 48E7 0080 		movem.l	%a0, -(%sp)
+ 546 0336 2079 0000 		movea.l	(task_p), %a0
+ 546      0000 
+ 547 033c 4E90      		jsr	(%a0)		/* task_pが指すアドレスへジャンプ */
+ 548 033e 4CDF 0100 		movem.l	(%sp)+, %a0
+ 549 0342 4E75      		rts
+ 550               	
+ 551               	.end
+68K GAS  mon.s 			page 12
+
+
+DEFINED SYMBOLS
+               mon.s:7      *ABS*:0000000000fff000 REGBASE
+               mon.s:8      *ABS*:0000000000d00000 IOBASE
+               mon.s:13     *ABS*:0000000000fff300 IVR
+               mon.s:14     *ABS*:0000000000fff304 IMR
+               mon.s:15     *ABS*:0000000000fff30c ISR
+               mon.s:16     *ABS*:0000000000fff310 IPR
+               mon.s:21     *ABS*:0000000000fff600 TCTL1
+               mon.s:22     *ABS*:0000000000fff602 TPRER1
+               mon.s:23     *ABS*:0000000000fff604 TCMP1
+               mon.s:24     *ABS*:0000000000fff608 TCN1
+               mon.s:25     *ABS*:0000000000fff60a TSTAT1
+               mon.s:30     *ABS*:0000000000fff900 USTCNT1
+               mon.s:31     *ABS*:0000000000fff902 UBAUD1
+               mon.s:32     *ABS*:0000000000fff904 URX1
+               mon.s:33     *ABS*:0000000000fff906 UTX1
+               mon.s:38     *ABS*:0000000000d0002f LED7
+               mon.s:39     *ABS*:0000000000d0002d LED6
+               mon.s:40     *ABS*:0000000000d0002b LED5
+               mon.s:41     *ABS*:0000000000d00029 LED4
+               mon.s:42     *ABS*:0000000000d0003f LED3
+               mon.s:43     *ABS*:0000000000d0003d LED2
+               mon.s:44     *ABS*:0000000000d0003b LED1
+               mon.s:45     *ABS*:0000000000d00039 LED0
+               mon.s:54     .text:0000000000000000 monitor_begin
+               mon.s:63     .bss:0000000000000000 SYS_STK
+               mon.s:66     .bss:0000000000004000 SYS_STK_TOP
+               mon.s:69     .bss:0000000000004000 task_p
+               mon.s:77     .text:0000000000000000 boot
+               mon.s:182    .text:0000000000000064 uart1_interrupt
+               mon.s:208    .text:00000000000000a0 timer_interrupt
+               mon.s:268    .text:000000000000011e Init_Q
+               mon.s:228    .text:00000000000000c0 SYSTEM_CALL
+               mon.s:118    *ABS*:0000000000000001 SYSCALL_NUM_GETSTRING
+               mon.s:119    *ABS*:0000000000000002 SYSCALL_NUM_PUTSTRING
+               mon.s:120    *ABS*:0000000000000003 SYSCALL_NUM_RESET_TIMER
+               mon.s:121    *ABS*:0000000000000004 SYSCALL_NUM_SET_TIMER
+               mon.s:122    *ABS*:0000000000000005 SYSCALL_NUM_SKIPMT
+               mon.s:129    .text:0000000000000064 MAIN
+               mon.s:144    .data:0000000000000000 TMSG
+               mon.s:146    .data:0000000000000008 TTC
+               mon.s:153    .bss:0000000000004004 BUF
+               mon.s:155    .bss:0000000000004104 USR_STK
+               mon.s:157    .bss:0000000000008104 USR_STK_TOP
+               mon.s:165    .bss:0000000000008104 Queue0
+               mon.s:166    .bss:0000000000008216 Queue1
+               mon.s:169    *ABS*:0000000000000000 BF_START
+               mon.s:170    *ABS*:00000000000000ff BF_END
+               mon.s:171    *ABS*:0000000000000100 top
+               mon.s:172    *ABS*:0000000000000104 out
+               mon.s:173    *ABS*:0000000000000108 in
+               mon.s:174    *ABS*:000000000000010c bottom
+               mon.s:175    *ABS*:0000000000000110 s
+               mon.s:191    .text:000000000000007e uart1_interrupt_receive
+               mon.s:394    .text:0000000000000232 INTERPUT
+               mon.s:200    .text:000000000000009a uart1_interrupt_end
+               mon.s:467    .text:00000000000002b4 INTERGET
+68K GAS  mon.s 			page 13
+
+
+               mon.s:215    .text:00000000000000be timer_interrupt_end
+               mon.s:544    .text:0000000000000332 CALL_RP
+               mon.s:230    .text:00000000000000c0 SYSTEM_CALL_SKIPMT
+               mon.s:236    .text:00000000000000d0 SYSTEM_CALL1
+               mon.s:243    .text:00000000000000e6 SYSTEM_CALL2
+               mon.s:488    .text:00000000000002ce GETSTRING
+               mon.s:260    .text:0000000000000118 SYSTEM_CALL_FINISH
+               mon.s:249    .text:00000000000000f8 SYSTEM_CALL3
+               mon.s:431    .text:0000000000000270 PUTSTRING
+               mon.s:255    .text:000000000000010a SYSTEM_CALL4
+               mon.s:516    .text:0000000000000302 RESET_TIMER
+               mon.s:529    .text:000000000000030c SET_TIMER
+               mon.s:273    .text:0000000000000128 Init_Q0
+               mon.s:284    .text:000000000000014e Init_Q1
+               mon.s:298    .text:0000000000000174 SelectQueue
+               mon.s:305    .text:0000000000000190 End_SelectQueue
+               mon.s:309    .text:0000000000000192 INQ
+               mon.s:337    .text:00000000000001ca PUT_BUF
+               mon.s:320    .text:00000000000001ae OUTQ
+               mon.s:367    .text:00000000000001fe GET_BUF
+               mon.s:357    .text:00000000000001fc END_PUT_BUF
+               mon.s:349    .text:00000000000001f0 STEP1_PUT_BUF
+               mon.s:353    .text:00000000000001f6 STEP2_PUT_BUF
+               mon.s:387    .text:0000000000000230 END_GET_BUF
+               mon.s:379    .text:0000000000000224 STEP1_GET_BUF
+               mon.s:383    .text:000000000000022a STEP2_GET_BUF
+               mon.s:415    .text:0000000000000268 END_INTERPUT
+               mon.s:411    .text:000000000000025e OUTQ_FAIL
+               mon.s:457    .text:00000000000002ae END_PUTSTRING
+               mon.s:454    .text:00000000000002ac PUTSTRING_STEP3
+               mon.s:440    .text:0000000000000288 PUTSTRING_STEP1
+               mon.s:451    .text:00000000000002a4 PUTSTRING_STEP2
+               mon.s:475    .text:00000000000002c8 END_INTERGET
+               mon.s:506    .text:00000000000002fa END_GETSTRING
+               mon.s:495    .text:00000000000002de GETSTRING_LOOP
+
+UNDEFINED SYMBOLS
+start

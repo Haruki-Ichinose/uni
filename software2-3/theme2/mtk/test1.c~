@@ -1,0 +1,13 @@
+#include <stdio.h>
+
+int main()
+{
+  
+  while (1) {
+    char str[256];
+    
+    scanf("%str",&str);
+    printf("%str",str);
+  }
+  return 0;
+}

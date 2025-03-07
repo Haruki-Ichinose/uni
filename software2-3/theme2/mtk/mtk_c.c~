@@ -1,0 +1,215 @@
+#include <stdio.h>
+#include "mtk_c.h"
+
+extern void pv_handler();
+extern void init_timer();
+extern void first_task();
+extern void sched();
+extern void swtch();
+
+void *init_stack(int id);
+void addq(int *q, int id);
+int removeq(int *q);
+
+SEMAPHORE_TYPE semaphore[NUMSEMAPHORE];	/* セマフォの定義 */
+TCB_TYPE task_tab[NUMTASK+1];		/* TCB配列の定義 */
+STACK_TYPE	stacks[NUMTASK];	/* タスクスタックの定義 */
+
+/* 大域変数 */
+TASK_ID_TYPE curr_task;
+TASK_ID_TYPE new_task;
+TASK_ID_TYPE next_task;
+TASK_ID_TYPE ready;
+
+
+void init_kernel(){
+/* TCB配列の初期化 */
+    for(int i=0;  i<=NUMTASK; i++){
+        task_tab[i].status=EMPTY;	/* EMPTY */
+        task_tab[i].next=0;		/* NULLTASKID*/
+        
+        task_tab[i].task_addr=NULL;
+        task_tab[i].stack_ptr=NULL;
+        task_tab[i].priority=0;
+    }
+    
+/* readyキューの初期化 */
+    ready = 0;		/* NULLTASKID */
+ 
+/* pr_handler = TRAP #1 */
+  *(unsigned int *)0x084 = (unsigned int)pv_handler; 
+
+/* セマフォの値を初期化 */
+    for(int i=0; i<NUMSEMAPHORE; i++){
+        semaphore[i].count=1;
+        semaphore[i].task_list=0;
+        /* semaphore[i].nst=0; */
+    }
+}
+
+/*======================================================
+ユーザタスクの初期化と登録 
+set_task:
+引数 : ユーザタスク関数へのポインタ(タスクの先頭番地)
+返り値 : なし
+========================================================*/
+
+void set_task(char *p){
+ 
+  for(int i=1; i <= NUMTASK; i++){
+    	if (task_tab[i].status == EMPTY){
+      		new_task = i; 
+      		break;
+      	}
+  }
+      
+  task_tab[new_task].task_addr = p;
+  task_tab[new_task].status = OCCUPIED;	
+  task_tab[new_task].stack_ptr = init_stack(new_task);
+  addq(&ready, new_task); 
+}
+
+/* ユーザタスク用のスタックの初期化 */
+/*init_stack:
+引数 : タスクID
+返り値 : 初期化が完了した時点でのユーザタスク用SSPが指すアドレス(void *型)*/
+void *init_stack(int id){
+  int *ssp = &stacks[id - 1].sstack[STKSIZE];
+  *(--ssp) = task_tab[id].task_addr;
+  unsigned short int *ssp1 = &stacks[id - 1].sstack[STKSIZE-4];
+  *(--ssp1) = 0x0000;
+  int *ssp2 = &stacks[id - 1].sstack[STKSIZE-66];
+  *(--ssp2) = &stacks[id - 1].ustack[STKSIZE];
+
+  return  &stacks[id - 1].sstack[STKSIZE-70];
+}
+
+/* マルチタスク処理の開始 */
+/*begin_sch:
+引数 : なし
+返り値 : なし*/
+/*
+void begin_sch(){
+  curr_task = removeq(&ready);/* 最初のタスクの設定 
+  init_timer();/* タイマの設定 
+  first_task();/* 最初のタスクの起動 
+}
+*/
+
+void begin_sch() {
+    printf("Starting scheduler...\n");
+
+    printf("Retrieving the first task from the ready queue...\n");
+    curr_task = removeq(&ready); /* 最初のタスクの設定 */
+    if (curr_task != NULL) {
+        printf("First task retrieved successfully. Task address: %p\n", curr_task);
+    } else {
+        printf("Error: No task available in the ready queue.\n");
+        return; // タスクがない場合はスケジューラを終了
+    }
+
+    printf("Initializing timer...\n");
+    init_timer(); /* タイマの設定 */
+    printf("Timer initialized.\n");
+
+    printf("Starting the first task...\n");   
+    first_task(); /* 最初のタスクの起動 */
+
+    // 通常、ここに到達しない
+    printf("Error: first_task() should not return.\n");
+}
+
+
+/* タスクキューの最後尾へのTCBの追加 */
+/*addq:
+引数 : キューへのポインタとタスクのID
+返り値 : なし*/
+void addq(int *q, int id){
+  int a = *q;
+  if(a == NULLTASKID){
+  	*q = id;
+  }
+  else{
+	while (task_tab[a].next != NULLTASKID){
+    		a = task_tab[a].next;
+  	}
+  }
+  task_tab[a].next = id;
+}
+
+/* タスクキューの先頭からTCBの除去 */
+/*removeq:
+引数 : キューへのポインタ
+返り値 : 先頭のID*/
+int removeq(int *q){
+  int a = *q;
+  *q = task_tab[a].next;
+  task_tab[a].next = NULLTASKID;
+  return a;
+}
+
+/* タスクのスケジュール管理 */
+/*sched:
+引数 : なし
+返り値 : なし*/
+void sched(){
+  next_task = removeq(&ready); 
+  while (next_task == NULLTASKID){}
+}
+
+
+
+void p_body(int a) {
+	semaphore[a].count -= 1;
+	if (semaphore[a].count < 0) {
+		sleep(a);
+		}
+}
+
+void v_body(int a) {
+	semaphore[a].count += 1;
+	if (semaphore[a].count <= 0) {
+		wakeup(a);
+		}
+}
+
+int sleep(int a){		/* a := セマフォID*/
+	int b = semaphore[a].task_list;	/* b := セマフォ[a]の先頭タスクID*/
+	if(b == NULLTASKID){		
+		semaphore[a].task_list = curr_task;	/*セマフォ[a]が空のとき現在のタスクをセマフォの先頭へ*/
+		task_tab[curr_task].next = NULLTASKID;
+	}else{
+		int c = task_tab[b].next;	
+		while(c != NULLTASKID){		/*セマフォキューの末尾を辿り、たどり着いた時、*/
+			b = c;			/* b= 末尾のタスクのID*/
+			c = task_tab[b].next;	/* c= NULLTASKID*/
+		}
+		task_tab[b].next = curr_task;		/*セマフォキューの末尾に現在のタスクを登録*/
+		task_tab[curr_task].next = NULLTASKID;
+	}
+	
+	sched();
+	swtch();
+}
+
+
+int wakeup(int a){
+	int b = semaphore[a].task_list;		/* b:= セマフォ[a]の先頭タスクID*/
+	if(b != NULLTASKID){
+		int c = task_tab[b].next;	/* c := セマフォ[a]の二番目のタスクID*/
+		task_tab[b].next = NULLTASKID;	
+		
+		semaphore[a].task_list = c;	/*セマフォ[a]の先頭のタスクIDをcに設定*/
+	
+		if(ready == NULLTASKID){
+			ready = b;		/*readyキューが空のとき先頭のタスクIDをbにする*/
+		}else{
+			int d = task_tab[ready].next;	
+			while(d != NULLTASKID){		/*readyキューの末尾をたどり、たどり着いた時、*/
+				c = d;			/* c= 末尾のタスクのID*/
+				d = task_tab[c].next;	/* d= NULLTASKID*/
+			}
+			task_tab[c].next = b;		/*readyキューの末尾にbを登録*/
+		}
+	}
+}

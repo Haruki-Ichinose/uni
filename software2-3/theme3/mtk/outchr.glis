@@ -1,0 +1,198 @@
+68K GAS  outchr.s 			page 1
+
+
+   1               	.global outbyte
+   2               	.include "equdefs.inc"
+   1               	***********************************************
+   2               	** 変数の定義
+   3               	***********************************************
+   4               	
+   5               	***************************************************************
+   6               	** 各種レジスタ定義
+   7               	***************************************************************
+   8               	***************
+   9               	** レジスタ群の先頭
+  10               	***************
+  11               	.equ REGBASE, 	0xFFF000 	| DMAP を使用．
+  12               	.equ IOBASE, 	0x00d00000
+  13               		
+  14               	***************
+  15               	** 割り込み関係のレジスタ
+  16               	***************
+  17               	.equ IVR, REGBASE+0x300 	| 割り込みベクタレジスタ
+  18               	.equ IMR, REGBASE+0x304 	| 割り込みマスクレジスタ
+  19               	.equ ISR, REGBASE+0x30c 	| 割り込みステータスレジスタ
+  20               	.equ IPR, REGBASE+0x310 	| 割り込みペンディングレジスタ
+  21               		
+  22               	***************
+  23               	** タイマ関係のレジスタ
+  24               	***************
+  25               	.equ TCTL1, 	REGBASE+0x600 	| タイマ１コントロールレジスタ
+  26               	.equ TPRER1, 	REGBASE+0x602 	| タイマ１プリスケーラレジスタ
+  27               	.equ TCMP1, 	REGBASE+0x604 	| タイマ１コンペアレジスタ
+  28               	.equ TCN1, 	REGBASE+0x608 	| タイマ１カウンタレジスタ
+  29               	.equ TSTAT1, 	REGBASE+0x60a 	| タイマ１ステータスレジスタ
+  30               		
+  31               	***************
+  32               	** UART1（送受信）関係のレジスタ
+  33               	***************
+  34               	.equ USTCNT1, 	REGBASE+0x900 	| UART1 ステータス/コントロールレジスタ
+  35               	.equ UBAUD1, 	REGBASE+0x902 	| UART1 ボーコントロールレジスタ
+  36               	.equ URX1, 	REGBASE+0x904 	| UART1 受信レジスタ
+  37               	.equ UTX1, 	REGBASE+0x906 	| UART1 送信レジスタ
+  38               		
+  39               	***************
+  40               	** LED
+  41               	***************
+  42               	.equ LED7, IOBASE+0x000002f
+  43               	.equ LED6, IOBASE+0x000002d
+  44               	.equ LED5, IOBASE+0x000002b
+  45               	.equ LED4, IOBASE+0x0000029
+  46               	.equ LED3, IOBASE+0x000003f
+  47               	.equ LED2, IOBASE+0x000003d
+  48               	.equ LED1, IOBASE+0x000003b
+  49               	.equ LED0, IOBASE+0x0000039
+  50               	
+  51               	***************
+  52               	** システムコール番号
+  53               	***************
+  54               	.equ SYSCALL_NUM_GETSTRING, 	1
+  55               	.equ SYSCALL_NUM_PUTSTRING, 	2
+68K GAS  outchr.s 			page 2
+
+
+  56               	.equ SYSCALL_NUM_RESET_TIMER, 	3
+  57               	.equ SYSCALL_NUM_SET_TIMER, 	4
+  58               	
+  59               	****************************************************************
+  60               	*** 初期値のあるデータ領域
+  61               	****************************************************************
+  62               	.section .data
+  63               	
+  64               	.even 				| \n: 次の行へ (ラインフィード)
+  65 0000 0000      	TTC:	.dc.w 0
+  66               	.even
+  67               		
+  68               	****************************************************************
+  69               	*** 初期値の無いデータ領域
+  70               	****************************************************************
+  71               	.section .bss
+  72 0000 0000 0000 	BUF: .ds.b 256 			| BUF[256]
+  72      0000 0000 
+  72      0000 0000 
+  72      0000 0000 
+  72      0000 0000 
+  73               	
+  74               	.even
+  75 0100 0000 0000 	USR_STK: .ds.b 0x4000 		| ユーザスタック領域
+  75      0000 0000 
+  75      0000 0000 
+  75      0000 0000 
+  75      0000 0000 
+  76               	.even
+  77               	USR_STK_TOP: 			| ユーザスタック領域の最後尾
+  78               		
+  79               	*******************************
+  80               	.section .bss
+  81 4100 0000 0000 	Queue0:		.ds.b	274	/* 受信用キュー */
+  81      0000 0000 
+  81      0000 0000 
+  81      0000 0000 
+  81      0000 0000 
+  82 4212 0000 0000 	Queue1:		.ds.b	274	/* 送信用キュー */
+  82      0000 0000 
+  82      0000 0000 
+  82      0000 0000 
+  82      0000 0000 
+  83               	
+  84               	.section .text
+  85               	.equ	BF_START, 	0		/* キューのデータ領域の先頭 */
+  86               	.equ	BF_END, 	255		/* キューのデータ領域の最後尾 */
+  87               	.equ	top, 		256		/* キューの先頭アドレスを保持へのオフセット */
+  88               	.equ	out, 		260		/* 次にpopするデータアドレスを保持へのオフセット */
+  89               	.equ	in, 		264		/* 次にinするデータアドレスを保持へのオフセット */
+  90               	.equ	bottom, 	268		/* キューの最終アドレスを保持へのオフセット */
+  91               	.equ	s, 		272		/* キュー内の要素数を保持する変数へのオフセット */
+  92               	
+  93               	
+  94               	
+   3               	
+   4               	.text
+68K GAS  outchr.s 			page 3
+
+
+   5               	.even
+   6               	
+   7               	outbyte:
+   8 0000 48E7 7080 		movem.l	%d1-%d3/%a0, -(%sp)
+   9               		
+  10               	outbyte_loop:
+  11 0004 7002      		move.l  #SYSCALL_NUM_PUTSTRING, %d0
+  12               		
+  13 0006 204F      		movea.l	%sp, %a0
+  14 0008 D1FC 0000 		adda.l	#20, %a0
+  14      0014 
+  15 000e 2210      		move.l (%a0), %d1
+  16               		
+  17 0010 240F      	   	move.l  %sp, %d2                 
+  18 0012 0682 0000 	   	addi.l  #27, %d2
+  18      001B 
+  19               	   	
+  20 0018 7601      	    	move.l  #1, %d3                  
+  21 001a 4E40      	    	trap    #0    
+  22               	
+  23 001c 0C80 0000 		cmpi.l   #0, %d0
+  23      0000 
+  24 0022 6700 FFE0 		beq	outbyte_loop
+  25               	
+  26 0026 4CDF 010E 		movem.l  (%sp)+, %d1-%d3/%a0
+  27 002a 4E75      		rts
+  28               	
+68K GAS  outchr.s 			page 4
+
+
+DEFINED SYMBOLS
+            outchr.s:7      .text:0000000000000000 outbyte
+         equdefs.inc:11     *ABS*:0000000000fff000 REGBASE
+         equdefs.inc:12     *ABS*:0000000000d00000 IOBASE
+         equdefs.inc:17     *ABS*:0000000000fff300 IVR
+         equdefs.inc:18     *ABS*:0000000000fff304 IMR
+         equdefs.inc:19     *ABS*:0000000000fff30c ISR
+         equdefs.inc:20     *ABS*:0000000000fff310 IPR
+         equdefs.inc:25     *ABS*:0000000000fff600 TCTL1
+         equdefs.inc:26     *ABS*:0000000000fff602 TPRER1
+         equdefs.inc:27     *ABS*:0000000000fff604 TCMP1
+         equdefs.inc:28     *ABS*:0000000000fff608 TCN1
+         equdefs.inc:29     *ABS*:0000000000fff60a TSTAT1
+         equdefs.inc:34     *ABS*:0000000000fff900 USTCNT1
+         equdefs.inc:35     *ABS*:0000000000fff902 UBAUD1
+         equdefs.inc:36     *ABS*:0000000000fff904 URX1
+         equdefs.inc:37     *ABS*:0000000000fff906 UTX1
+         equdefs.inc:42     *ABS*:0000000000d0002f LED7
+         equdefs.inc:43     *ABS*:0000000000d0002d LED6
+         equdefs.inc:44     *ABS*:0000000000d0002b LED5
+         equdefs.inc:45     *ABS*:0000000000d00029 LED4
+         equdefs.inc:46     *ABS*:0000000000d0003f LED3
+         equdefs.inc:47     *ABS*:0000000000d0003d LED2
+         equdefs.inc:48     *ABS*:0000000000d0003b LED1
+         equdefs.inc:49     *ABS*:0000000000d00039 LED0
+         equdefs.inc:54     *ABS*:0000000000000001 SYSCALL_NUM_GETSTRING
+         equdefs.inc:55     *ABS*:0000000000000002 SYSCALL_NUM_PUTSTRING
+         equdefs.inc:56     *ABS*:0000000000000003 SYSCALL_NUM_RESET_TIMER
+         equdefs.inc:57     *ABS*:0000000000000004 SYSCALL_NUM_SET_TIMER
+         equdefs.inc:65     .data:0000000000000000 TTC
+         equdefs.inc:72     .bss:0000000000000000 BUF
+         equdefs.inc:75     .bss:0000000000000100 USR_STK
+         equdefs.inc:77     .bss:0000000000004100 USR_STK_TOP
+         equdefs.inc:81     .bss:0000000000004100 Queue0
+         equdefs.inc:82     .bss:0000000000004212 Queue1
+         equdefs.inc:85     *ABS*:0000000000000000 BF_START
+         equdefs.inc:86     *ABS*:00000000000000ff BF_END
+         equdefs.inc:87     *ABS*:0000000000000100 top
+         equdefs.inc:88     *ABS*:0000000000000104 out
+         equdefs.inc:89     *ABS*:0000000000000108 in
+         equdefs.inc:90     *ABS*:000000000000010c bottom
+         equdefs.inc:91     *ABS*:0000000000000110 s
+            outchr.s:10     .text:0000000000000004 outbyte_loop
+
+NO UNDEFINED SYMBOLS

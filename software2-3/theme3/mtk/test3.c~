@@ -1,0 +1,520 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include "mtk_c.h"
+#include "card.h"
+
+CARD cards[TOTAL_CARDS];
+CARD deck[2][TOTAL_CARDS / 2];
+CARD hand[2][4];
+CARD lead[2];
+
+
+int end_hand[2] = {0};
+int top[2] = {0};
+int is_finish = 0;
+int winner = 2;
+volatile int flag0 = 0;
+volatile int flag1 = 0
+
+char *mark_str[5] = {
+    "━", "♣", "♠", "♥", "♦"};
+
+char *number_str[14] = {
+    "━","A","2","3","4","5","6","7","8","9","10","J","Q","K",
+};
+
+void disp_field(int ch, FILE *cha)
+{
+    fprintf(cha, "P%d : ", abs(ch - 1));
+    for (int i = 0; i < 4; i++)
+    {
+        fprintf(cha, "%s %s ", mark_str[hand[abs(ch - 1)][i].mark],number_str[hand[abs(ch - 1)][i].number]);
+    }
+    
+    fprintf(cha, "\n\n");
+    fprintf(cha, "%7s%s %s", "", mark_str[lead[0].mark],number_str[lead[0].number]);
+    fprintf(cha, "%8s%s %s", "", mark_str[lead[1].mark],number_str[lead[1].number]);
+
+    fprintf(cha, "\n\n");
+    fprintf(cha, "P%d : ", ch);
+    for (int i = 0; i < 4; i++)
+    {
+        fprintf(cha, "%s %s ", mark_str[hand[ch][i].mark],number_str[hand[ch][i].number]);
+    }
+    fprintf(cha, "\n\n");
+    fprintf(cha, "\n\n");
+}
+
+
+
+void fill_card(int ch, int num)
+{
+    if (top[ch] == 26)
+    {
+        hand[ch][num].mark = 0;
+        hand[ch][num].number = 0;
+        end_hand[ch]++;
+    }
+    else
+    {
+        hand[ch][num] = deck[ch][top[ch]];
+        top[ch]++;
+    }
+}
+
+void init_card()
+{
+    for (int i = 0; i < 4; i++)
+    {
+        for (int j = 0; j < 13; j++)
+        {
+            cards[i * 13 + j].mark = i + 1;   // マークの設定
+            cards[i * 13 + j].number = j + 1; // 数字の設定
+        }
+    }
+}
+
+void shuffle_card()
+{
+    for (int c = 51; c > 0; c--)
+    {
+        int j = rand() % (c + 1);
+        CARD tmp = cards[j];
+        cards[j] = cards[c];
+        cards[c] = tmp;
+    }
+}
+
+void dist_card()
+{
+    for (int i = 0; i < 52; i++)
+    {
+        div_t j = div(i, 2);
+        deck[j.rem][j.quot] = cards[i];
+    }
+}
+
+void init_hand()
+{
+    for (int i = 0; i < 4; i++)
+    {
+        fill_card(0, i);
+    }
+    for (int i = 0; i < 4; i++)
+    {
+        fill_card(1, i);
+    }
+}
+
+void out_deck(int ch)
+{
+    if (top[ch] == 26)
+    {
+        for (int i = 0; i < 4; i++)
+        {
+            if (hand[ch][i].number != 0)
+            {
+                lead[ch] = hand[ch][i];
+                hand[ch][i].mark = 0;
+                hand[ch][i].number = 0;
+                end_hand[ch]++;
+
+                break;
+            }
+        }
+    }
+    else
+    {
+        lead[ch] = deck[ch][top[ch]];
+        top[ch]++;
+    }
+}
+
+void sleeptime(int sec)
+{
+    int sleep_counter = 0;
+    while (sleep_counter != sec * 50)
+    {
+        sleep_counter++;
+        printf("\033[%dA\n", 1);
+    }
+}
+
+void init_game()
+{
+    init_card();
+    shuffle_card();
+    dist_card();
+    init_hand();
+    disp_field(0, com0out);
+    disp_field(1, com1out);
+}
+
+void start_game()
+{
+    while (1)
+    {
+        while (flag0 == 1 || flag1 == 1);
+
+        P(0);
+
+        P(1);
+
+        fprintf(com0out, "-----READY-----\n");
+
+        fprintf(com1out, "-----READY-----\n");
+
+        for (int i = 3; i >= 1; i--)
+
+        {
+
+            fprintf(com0out, "%d \n", i);
+
+            fprintf(com1out, "%d \n", i);
+
+            sleeptime(10);
+
+        }
+
+        fprintf(com0out, "-----SPEED-----\n\n");
+
+        fprintf(com1out, "-----SPEED-----\n\n");
+
+        out_deck(0);
+
+        out_deck(1);
+
+        disp_field(0, com0out);
+
+        disp_field(1, com1out);
+
+        if (end_hand[0] == 4 && end_hand[1] == 4)
+
+        {
+
+            fprintf(com0out, "-----終了-----\n");
+
+            fprintf(com0out, "Draw");
+
+            fprintf(com1out, "Draw");
+
+            P(0);
+
+        }
+
+        else if (end_hand[0] == 4)
+
+        {
+
+            is_finish = 1;
+
+            winner = 0;
+
+        }
+
+        else if (end_hand[1] == 4)
+
+        {
+
+            is_finish = 1;
+
+            winner = 1;
+
+        }
+
+        flag0 = 1;
+
+        flag1 = 1;
+
+        V(0);
+
+        V(1);
+
+    }
+
+}
+
+
+
+void player0()
+
+{
+
+    while (1)
+
+    {
+
+        P(0);
+
+        int num, lead0, lead1;
+
+        flag0 = 1;
+
+        if (is_finish)
+
+        {
+
+            fprintf(com0out, "-----終了-----\n");
+
+            fprintf(com0out, "player%d の勝利\n", winner);
+
+            P(0);
+
+        }
+
+        fprintf(com0out, "カードを選んでください : \n");
+
+        for (int i = 0; i < 4; i++)
+
+        {
+
+            if (hand[0][i].number != 0)
+
+            {
+
+                lead0 = abs(lead[0].number - hand[0][i].number);
+
+                lead1 = abs(lead[1].number - hand[0][i].number);
+
+                if (lead0 == 1 || lead0 == 12 ||
+
+                    lead1 == 1 || lead1 == 12)
+
+                {
+
+                    flag0 = 1;
+
+                    break;
+
+                }
+
+            }
+
+            flag0 = 0;
+
+        }
+
+        fscanf(com0in, "%d", &num);
+
+        if (0 <= num && num <= 3 && hand[0][num].number != 0)
+
+        {
+
+            P(2);
+
+            lead0 = abs(lead[0].number - hand[0][num].number);
+
+            lead1 = abs(lead[1].number - hand[0][num].number);
+
+            if (lead0 == 1 || lead0 == 12)
+
+                lead[0] = hand[0][num];
+
+            else if (lead1 == 1 || lead1 == 12)
+
+                lead[1] = hand[0][num];
+
+            else
+
+            {
+
+                fprintf(com0out, "そのカードは出せません\n");
+
+                disp_field(0, com0out);
+
+                V(2);
+
+                V(0);
+
+                continue;
+
+            }
+
+            V(2);
+
+            fill_card(0, num);
+
+            disp_field(0, com0out);
+
+            disp_field(1, com1out);
+
+            P(2);
+
+            if (end_hand[0] == 4 && !is_finish)
+
+            {
+
+                is_finish = 1;
+
+                winner = 0;
+
+            }
+
+            V(2);
+
+        }
+
+        else
+
+        {
+
+            fprintf(com0out, "入力が正しくありません\n");
+
+            disp_field(0, com0out);
+
+        }
+
+        V(0);
+
+    }
+
+}
+
+
+
+void player1()
+
+{
+
+    while (1)
+
+    {
+
+        P(1);
+
+        int num, lead0, lead1;
+
+        flag1 = 1;
+
+        if (is_finish)
+
+        {
+
+            fprintf(com1out, "-----終了-----\n");
+
+            fprintf(com1out, "player%d の勝利\n", winner);
+
+            P(1);
+
+        }
+
+        for (int i = 0; i < 4; i++)
+
+        {
+
+            if (hand[1][i].number != 0)
+
+            {
+
+                lead0 = abs(lead[0].number - hand[1][i].number);
+
+                lead1 = abs(lead[1].number - hand[1][i].number);
+
+                if (lead0 == 1 || lead0 == 12 ||
+
+                    lead1 == 1 || lead1 == 12)
+
+                {
+
+                    flag1 = 1;
+
+                    break;
+
+                }
+
+            }
+
+            flag1 = 0;
+
+        }
+
+        fprintf(com1out, "カードを選んでください : \n");
+
+        fflush(com1in);
+
+        fscanf(com1in, "%d", &num);
+
+        if (0 <= num && num <= 3 && hand[1][num].number != 0)
+
+        {
+
+            P(2);
+
+            lead0 = 1; // abs(lead[0].number - hand[1][num].number);
+
+            lead1 = 1; // abs(lead[1].number - hand[1][num].number);
+
+            if (lead0 == 1 || lead0 == 12)
+
+                lead[0] = hand[1][num];
+
+            else if (lead1 == 1 || lead1 == 12)
+
+                lead[1] = hand[1][num];
+
+            else
+
+            {
+
+                fprintf(com1out, "そのカードは出せません\n");
+
+                disp_field(1, com1out);
+
+                V(2);
+
+                V(1);
+
+                continue;
+
+            }
+
+            V(2);
+
+            fill_card(1, num);
+
+            disp_field(0, com0out);
+
+            disp_field(1, com1out);
+
+            P(2);
+
+            if (end_hand[1] == 4 && !is_finish)
+
+            {
+
+                is_finish = 1;
+
+                winner = 1;
+
+            }
+
+            V(2);
+
+        }
+
+        else
+
+        {
+
+            fprintf(com1out, "入力が正しくありません\n");
+
+            disp_field(1, com1out);
+
+        }
+
+        V(1);
+
+    }
+
+}
+
+int main()
+{
+    mapping();
+    init_kernel();
+    init_game();          // カードの準備
+    set_task(start_game); // ターン開始
+    set_task(player0);    // p1 のカード処理
+    set_task(player1);    // p2 のカード処理
+    begin_sch();          // マルチタスキング開始
+}

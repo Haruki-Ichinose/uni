@@ -1,0 +1,144 @@
+68K GAS  outchr.s 			page 1
+
+
+   1               	.global outbyte
+   2               	.include "equdefs.inc"
+   1               	***************************************************************
+   2               	** 各種レジスタ定義
+   3               	***************************************************************
+   4               		
+   5               	***************
+   6               	** レジスタ群の先頭
+   7               	***************
+   8               	.equ REGBASE, 	0xFFF000 	| DMAP を使用．
+   9               	.equ IOBASE, 	0x00d00000
+  10               		
+  11               	***************
+  12               	** 割り込み関係のレジスタ
+  13               	***************
+  14               	.equ IVR, REGBASE+0x300 	| 割り込みベクタレジスタ
+  15               	.equ IMR, REGBASE+0x304 	| 割り込みマスクレジスタ
+  16               	.equ ISR, REGBASE+0x30c 	| 割り込みステータスレジスタ
+  17               	.equ IPR, REGBASE+0x310 	| 割り込みペンディングレジスタ
+  18               		
+  19               	***************
+  20               	** タイマ関係のレジスタ
+  21               	***************
+  22               	.equ TCTL1, 	REGBASE+0x600 	| タイマ１コントロールレジスタ
+  23               	.equ TPRER1, 	REGBASE+0x602 	| タイマ１プリスケーラレジスタ
+  24               	.equ TCMP1, 	REGBASE+0x604 	| タイマ１コンペアレジスタ
+  25               	.equ TCN1, 	REGBASE+0x608 	| タイマ１カウンタレジスタ
+  26               	.equ TSTAT1, 	REGBASE+0x60a 	| タイマ１ステータスレジスタ
+  27               		
+  28               	***************
+  29               	** UART1（送受信）関係のレジスタ
+  30               	***************
+  31               	.equ USTCNT1, 	REGBASE+0x900 	| UART1 ステータス/コントロールレジスタ
+  32               	.equ UBAUD1, 	REGBASE+0x902 	| UART1 ボーコントロールレジスタ
+  33               	.equ URX1, 	REGBASE+0x904 	| UART1 受信レジスタ
+  34               	.equ UTX1, 	REGBASE+0x906 	| UART1 送信レジスタ
+  35               		
+  36               	***************
+  37               	** LED
+  38               	***************
+  39               	.equ LED7, IOBASE+0x000002f
+  40               	.equ LED6, IOBASE+0x000002d
+  41               	.equ LED5, IOBASE+0x000002b
+  42               	.equ LED4, IOBASE+0x0000029
+  43               	.equ LED3, IOBASE+0x000003f
+  44               	.equ LED2, IOBASE+0x000003d
+  45               	.equ LED1, IOBASE+0x000003b
+  46               	.equ LED0, IOBASE+0x0000039
+  47               	
+  48               	***************
+  49               	** システムコール番号
+  50               	***************
+  51               	.equ SYSCALL_NUM_GETSTRING, 	1
+  52               	.equ SYSCALL_NUM_PUTSTRING, 	2
+  53               	.equ SYSCALL_NUM_RESET_TIMER, 	3
+  54               	.equ SYSCALL_NUM_SET_TIMER, 	4
+  55               	
+68K GAS  outchr.s 			page 2
+
+
+  56               	***************************************************************
+  57               	** スタック領域の確保
+  58               	***************************************************************
+  59               	.section .bss
+  60               	.even
+  61 0000 0000 0000 	SYS_STK: .ds.b 0x4000 	| システムスタック領域
+  61      0000 0000 
+  61      0000 0000 
+  61      0000 0000 
+  61      0000 0000 
+  62               	
+  63               	.even
+  64               	SYS_STK_TOP: 		| システムスタック領域の最後尾
+  65               	
+  66               	.even
+  67 4000 0000 0000 	task_p:	.ds.l 1
+  68               	
+  69               	
+   3               	
+   4               	.text
+   5               	.even
+   6               	
+   7               	outbyte:
+   8 0000 48E7 7000 		movem.l	%d1-%d3, -(%sp)
+   9               		
+  10               	outbyte_loop:
+  11 0004 7002      		move.l  #SYSCALL_NUM_PUTSTRING, %d0
+  12 0006 7200      	   	move.l  #0, %d1
+  13 0008 240F      	   	move.l  %sp, %d2                 
+  14 000a 0682 0000 	   	addi.l  #19, %d2
+  14      0013 
+  15 0010 7601      	    	move.l  #1, %d3                  
+  16 0012 4E40      	    	trap    #0    
+  17               	
+  18 0014 0C80 0000 		cmpi.l   #0, %d0
+  18      0000 
+  19 001a 6700 FFE8 		beq	outbyte_loop
+  20               	
+  21 001e 4CDF 000E 		movem.l  (%sp)+, %d1-%d3
+  22 0022 4E75      		rts
+  23               		
+  24               		
+  25               	
+68K GAS  outchr.s 			page 3
+
+
+DEFINED SYMBOLS
+            outchr.s:7      .text:0000000000000000 outbyte
+         equdefs.inc:8      *ABS*:0000000000fff000 REGBASE
+         equdefs.inc:9      *ABS*:0000000000d00000 IOBASE
+         equdefs.inc:14     *ABS*:0000000000fff300 IVR
+         equdefs.inc:15     *ABS*:0000000000fff304 IMR
+         equdefs.inc:16     *ABS*:0000000000fff30c ISR
+         equdefs.inc:17     *ABS*:0000000000fff310 IPR
+         equdefs.inc:22     *ABS*:0000000000fff600 TCTL1
+         equdefs.inc:23     *ABS*:0000000000fff602 TPRER1
+         equdefs.inc:24     *ABS*:0000000000fff604 TCMP1
+         equdefs.inc:25     *ABS*:0000000000fff608 TCN1
+         equdefs.inc:26     *ABS*:0000000000fff60a TSTAT1
+         equdefs.inc:31     *ABS*:0000000000fff900 USTCNT1
+         equdefs.inc:32     *ABS*:0000000000fff902 UBAUD1
+         equdefs.inc:33     *ABS*:0000000000fff904 URX1
+         equdefs.inc:34     *ABS*:0000000000fff906 UTX1
+         equdefs.inc:39     *ABS*:0000000000d0002f LED7
+         equdefs.inc:40     *ABS*:0000000000d0002d LED6
+         equdefs.inc:41     *ABS*:0000000000d0002b LED5
+         equdefs.inc:42     *ABS*:0000000000d00029 LED4
+         equdefs.inc:43     *ABS*:0000000000d0003f LED3
+         equdefs.inc:44     *ABS*:0000000000d0003d LED2
+         equdefs.inc:45     *ABS*:0000000000d0003b LED1
+         equdefs.inc:46     *ABS*:0000000000d00039 LED0
+         equdefs.inc:51     *ABS*:0000000000000001 SYSCALL_NUM_GETSTRING
+         equdefs.inc:52     *ABS*:0000000000000002 SYSCALL_NUM_PUTSTRING
+         equdefs.inc:53     *ABS*:0000000000000003 SYSCALL_NUM_RESET_TIMER
+         equdefs.inc:54     *ABS*:0000000000000004 SYSCALL_NUM_SET_TIMER
+         equdefs.inc:61     .bss:0000000000000000 SYS_STK
+         equdefs.inc:64     .bss:0000000000004000 SYS_STK_TOP
+         equdefs.inc:67     .bss:0000000000004000 task_p
+            outchr.s:10     .text:0000000000000004 outbyte_loop
+
+NO UNDEFINED SYMBOLS
